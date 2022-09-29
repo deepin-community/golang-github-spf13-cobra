@@ -1,0 +1,2 @@
+# The license file is a test fixture used during "go test"
+golang-github-spf13-cobra-dev binary: extra-license-file usr/share/gocode/src/github.com/spf13/cobra/cobra/cmd/testdata/LICENSE.golden

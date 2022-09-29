@@ -1,0 +1,58 @@
+.TH "COBRA\-INIT" "1" "Dec 2015" "github.com/spf13/cobra" "Cobra Manual"  ""
+.nh
+.ad l
+
+.SH NAME
+.PP
+cobra\-init \- Initialize a Cobra Application
+
+
+.SH SYNOPSIS
+.PP
+\fBcobra init\fP [OPTIONS]
+
+
+.SH DESCRIPTION
+.PP
+Initialize (cobra init) will create a new application, with a license
+and the appropriate structure for a Cobra\-based CLI application.
+.IP \(bu 2
+If a name is provided, it will be created in the current directory;
+.IP \(bu 2
+If no name is provided, the current directory will be assumed;
+.IP \(bu 2
+If a relative path is provided, it will be created inside $GOPATH
+(e.g. github.com/spf13/hugo);
+.IP \(bu 2
+If an absolute path is provided, it will be created;
+.IP \(bu 2
+If the directory already exists but is empty, it will be used.
+.PP
+Init will not use an existing directory with contents.
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+.PP
+\fB\-a\fP, \fB\-\-author\fP="YOUR NAME"
+    Author name for copyright attribution
+
+.PP
+\fB\-\-config\fP=""
+    config file (default is $HOME/.cobra.yaml)
+
+.PP
+\fB\-l\fP, \fB\-\-license\fP=""
+    Name of license for the project (can provide \fB\fClicensetext\fR in config)
+
+.PP
+\fB\-b\fP, \fB\-\-projectbase\fP=""
+    base project directory, e.g. github.com/spf13/
+
+.PP
+\fB\-\-viper\fP[=true]
+    Use Viper for configuration
+
+
+.SH SEE ALSO
+.PP
+\fBcobra(1)\fP
