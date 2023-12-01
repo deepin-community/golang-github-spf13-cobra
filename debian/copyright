@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: Cobra
 Source: https://github.com/spf13/cobra
+Upstream-Name: Cobra
 
 Files: *
 Copyright: 2013–2016 Steve Francia <steve.francia@gmail.com>
