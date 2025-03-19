@@ -8,7 +8,8 @@ The currently supported shells are:
 - PowerShell
 
 Cobra will automatically provide your program with a fully functional `completion` command,
-similarly to how it provides the `help` command.
+similarly to how it provides the `help` command. If there are no other subcommands, the
+default `completion` command will be hidden, but still functional.
 
 ## Creating your own completion command
 
@@ -177,7 +178,7 @@ cmd := &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) {
 		RunGet(args[0])
 	},
-	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -211,7 +212,7 @@ ShellCompDirectiveNoFileComp
 
 // Indicates that the returned completions should be used as file extension filters.
 // For example, to complete only files of the form *.json or *.yaml:
-//    return []string{"yaml", "json"}, ShellCompDirectiveFilterFileExt
+//    return []cobra.Completion{"yaml", "json"}, cobra.ShellCompDirectiveFilterFileExt
 // For flags, using MarkFlagFilename() and MarkPersistentFlagFilename()
 // is a shortcut to using this directive explicitly.
 //
@@ -219,13 +220,13 @@ ShellCompDirectiveFilterFileExt
 
 // Indicates that only directory names should be provided in file completion.
 // For example:
-//    return nil, ShellCompDirectiveFilterDirs
+//    return nil, cobra.ShellCompDirectiveFilterDirs
 // For flags, using MarkFlagDirname() is a shortcut to using this directive explicitly.
 //
 // To request directory names within another directory, the returned completions
 // should specify a single directory name within which to search. For example,
 // to complete directories within "themes/":
-//    return []string{"themes"}, ShellCompDirectiveFilterDirs
+//    return []cobra.Completion{"themes"}, cobra.ShellCompDirectiveFilterDirs
 //
 ShellCompDirectiveFilterDirs
 
@@ -293,8 +294,8 @@ As for nouns, Cobra provides a way of defining dynamic completion of flags.  To 
 
 ```go
 flagName := "output"
-cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"json", "table", "yaml"}, cobra.ShellCompDirectiveDefault
+cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return []cobra.Completion{"json", "table", "yaml"}, cobra.ShellCompDirectiveDefault
 })
 ```
 Notice that calling `RegisterFlagCompletionFunc()` is done through the `command` with which the flag is associated.  In our example this dynamic completion will give results like so:
@@ -327,8 +328,8 @@ cmd.MarkFlagFilename(flagName, "yaml", "json")
 or
 ```go
 flagName := "output"
-cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"yaml", "json"}, ShellCompDirectiveFilterFileExt})
+cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return []cobra.Completion{"yaml", "json"}, cobra.ShellCompDirectiveFilterFileExt})
 ```
 
 ### Limit flag completions to directory names
@@ -341,15 +342,15 @@ cmd.MarkFlagDirname(flagName)
 or
 ```go
 flagName := "output"
-cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	return nil, cobra.ShellCompDirectiveFilterDirs
 })
 ```
 To limit completions of flag values to directory names *within another directory* you can use a combination of `RegisterFlagCompletionFunc()` and `ShellCompDirectiveFilterDirs` like so:
 ```go
 flagName := "output"
-cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"themes"}, cobra.ShellCompDirectiveFilterDirs
+cmd.RegisterFlagCompletionFunc(flagName, func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return []cobra.Completion{"themes"}, cobra.ShellCompDirectiveFilterDirs
 })
 ```
 ### Descriptions for completions
@@ -370,15 +371,21 @@ $ helm s[tab]
 search  (search for a keyword in charts)  show  (show information of a chart)  status  (displays the status of the named release)
 ```
 
-Cobra allows you to add descriptions to your own completions.  Simply add the description text after each completion, following a `\t` separator.  This technique applies to completions returned by `ValidArgs`, `ValidArgsFunction` and `RegisterFlagCompletionFunc()`.  For example:
+Cobra allows you to add descriptions to your own completions.  Simply add the description text after each completion, following a `\t` separator. Cobra provides the helper function `CompletionWithDesc(string, string)` to create a completion with a description. This technique applies to completions returned by `ValidArgs`, `ValidArgsFunction` and `RegisterFlagCompletionFunc()`.  For example:
 ```go
-ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"harbor\tAn image registry", "thanos\tLong-term metrics"}, cobra.ShellCompDirectiveNoFileComp
+ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	return []cobra.Completion{
+		cobra.CompletionWithDesc("harbor", "An image registry"),
+		cobra.CompletionWithDesc("thanos", "Long-term metrics")
+		}, cobra.ShellCompDirectiveNoFileComp
 }}
 ```
 or
 ```go
-ValidArgs: []string{"bash\tCompletions for bash", "zsh\tCompletions for zsh"}
+ValidArgs: []cobra.Completion{
+	cobra.CompletionWithDesc("bash", "Completions for bash"),
+	cobra.CompletionWithDesc("zsh", "Completions for zsh")
+	}
 ```
 
 If you don't want to show descriptions in the completions, you can add `--no-descriptions` to the default `completion` command to disable them, like:
@@ -393,6 +400,9 @@ $ source <(helm completion bash --no-descriptions)
 $ helm completion [tab][tab]
 bash        fish        powershell  zsh
 ```
+
+Setting the `<PROGRAM>_COMPLETION_DESCRIPTIONS` environment variable (falling back to `COBRA_COMPLETION_DESCRIPTIONS` if empty or not set) to a [falsey value](https://pkg.go.dev/strconv#ParseBool) achieves the same. `<PROGRAM>` is the name of your program with all non-ASCII-alphanumeric characters replaced by `_`.
+
 ## Bash completions
 
 ### Dependencies
@@ -416,7 +426,7 @@ completion     firstcommand   secondcommand
 ### Bash legacy dynamic completions
 
 For backward compatibility, Cobra still supports its bash legacy dynamic completion solution.
-Please refer to [Bash Completions](bash_completions.md) for details.
+Please refer to [Bash Completions](bash.md) for details.
 
 ### Bash completion V2
 
@@ -425,13 +435,13 @@ Cobra provides two versions for bash completion.  The original bash completion (
 
 A new V2 bash completion version is also available.  This version can be used by calling `GenBashCompletionV2()` or
 `GenBashCompletionFileV2()`.  The V2 version does **not** support the legacy dynamic completion
-(see [Bash Completions](bash_completions.md)) but instead works only with the Go dynamic completion
+(see [Bash Completions](bash.md)) but instead works only with the Go dynamic completion
 solution described in this document.
 Unless your program already uses the legacy dynamic completion solution, it is recommended that you use the bash
 completion V2 solution which provides the following extra features:
 - Supports completion descriptions (like the other shells)
 - Small completion script of less than 300 lines (v1 generates scripts of thousands of lines; `kubectl` for example has a bash v1 completion script of over 13K lines)
-- Streamlined user experience thanks to a completion behavior aligned with the other shells 
+- Streamlined user experience thanks to a completion behavior aligned with the other shells
 
 `Bash` completion V2 supports descriptions for completions. When calling `GenBashCompletionV2()` or `GenBashCompletionFileV2()`
 you must provide these functions with a parameter indicating if the completions should be annotated with a description; Cobra
@@ -448,7 +458,7 @@ show    (show information of a chart)
 $ helm s[tab][tab]
 search  show  status
 ```
-**Note**: Cobra's default `completion` command uses bash completion V2.  If for some reason you need to use bash completion V1, you will need to implement your own `completion` command. 
+**Note**: Cobra's default `completion` command uses bash completion V2.  If for some reason you need to use bash completion V1, you will need to implement your own `completion` command.
 ## Zsh completions
 
 Cobra supports native zsh completion generated from the root `cobra.Command`.
@@ -482,7 +492,7 @@ search  show  status
 ### Zsh completions standardization
 
 Cobra 1.1 standardized its zsh completion support to align it with its other shell completions.  Although the API was kept backward-compatible, some small changes in behavior were introduced.
-Please refer to [Zsh Completions](zsh_completions.md) for details.
+Please refer to [Zsh Completions](zsh.md) for details.
 
 ## fish completions
 
@@ -535,7 +545,7 @@ search  (search for a keyword in charts)  show  (show information of a chart)  s
 
 # With descriptions and Mode 'MenuComplete' The description of the current selected value will be displayed below the suggestions.
 $ helm s[tab]
-search    show     status  
+search    show     status
 
 search for a keyword in charts
 

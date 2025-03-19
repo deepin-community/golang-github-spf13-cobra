@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -366,6 +366,71 @@ func TestAliasPrefixMatching(t *testing.T) {
 	EnablePrefixMatching = defaultPrefixMatching
 }
 
+// TestPlugin checks usage as plugin for another command such as kubectl.  The
+// executable is `kubectl-plugin`, but we run it as `kubectl plugin`. The help
+// text should reflect the way we run the command.
+func TestPlugin(t *testing.T) {
+	cmd := &Command{
+		Use:     "kubectl-plugin",
+		Version: "1.0.0",
+		Args:    NoArgs,
+		Annotations: map[string]string{
+			CommandDisplayNameAnnotation: "kubectl plugin",
+		},
+		Run: emptyRun,
+	}
+
+	cmdHelp, err := executeCommand(cmd, "-h")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	checkStringContains(t, cmdHelp, "kubectl plugin [flags]")
+	checkStringContains(t, cmdHelp, "help for kubectl plugin")
+	checkStringContains(t, cmdHelp, "version for kubectl plugin")
+}
+
+// TestPluginWithSubCommands checks usage as plugin with sub commands.
+func TestPluginWithSubCommands(t *testing.T) {
+	rootCmd := &Command{
+		Use:     "kubectl-plugin",
+		Version: "1.0.0",
+		Args:    NoArgs,
+		Annotations: map[string]string{
+			CommandDisplayNameAnnotation: "kubectl plugin",
+		},
+	}
+
+	subCmd := &Command{Use: "sub [flags]", Args: NoArgs, Run: emptyRun}
+	rootCmd.AddCommand(subCmd)
+
+	rootHelp, err := executeCommand(rootCmd, "-h")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	checkStringContains(t, rootHelp, "kubectl plugin [command]")
+	checkStringContains(t, rootHelp, "help for kubectl plugin")
+	checkStringContains(t, rootHelp, "version for kubectl plugin")
+	checkStringContains(t, rootHelp, "kubectl plugin [command] --help")
+
+	childHelp, err := executeCommand(rootCmd, "sub", "-h")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	checkStringContains(t, childHelp, "kubectl plugin sub [flags]")
+	checkStringContains(t, childHelp, "help for sub")
+
+	helpHelp, err := executeCommand(rootCmd, "help", "-h")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	checkStringContains(t, helpHelp, "kubectl plugin help [path to command]")
+	checkStringContains(t, helpHelp, "kubectl plugin help [command]")
+}
+
 // TestChildSameName checks the correct behaviour of cobra in cases,
 // when an application with name "foo" and with subcommand "foo"
 // is executed with args "foo foo".
@@ -438,7 +503,7 @@ func TestFlagLong(t *testing.T) {
 
 	output, err := executeCommand(c, "--intf=7", "--sf=abc", "one", "--", "two")
 	if output != "" {
-		t.Errorf("Unexpected output: %v", err)
+		t.Errorf("Unexpected output: %v", output)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -475,7 +540,7 @@ func TestFlagShort(t *testing.T) {
 
 	output, err := executeCommand(c, "-i", "7", "-sabc", "one", "two")
 	if output != "" {
-		t.Errorf("Unexpected output: %v", err)
+		t.Errorf("Unexpected output: %v", output)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -504,7 +569,7 @@ func TestChildFlag(t *testing.T) {
 
 	output, err := executeCommand(rootCmd, "child", "-i7")
 	if output != "" {
-		t.Errorf("Unexpected output: %v", err)
+		t.Errorf("Unexpected output: %v", output)
 	}
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -953,6 +1018,49 @@ func TestSetHelpCommand(t *testing.T) {
 	}
 }
 
+func TestSetHelpTemplate(t *testing.T) {
+	rootCmd := &Command{Use: "root", Run: emptyRun}
+	childCmd := &Command{Use: "child", Run: emptyRun}
+	rootCmd.AddCommand(childCmd)
+
+	rootCmd.SetHelpTemplate("WORKS {{.UseLine}}")
+
+	// Call the help on the root command and check the new template is used
+	got, err := executeCommand(rootCmd, "--help")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected := "WORKS " + rootCmd.UseLine()
+	if got != expected {
+		t.Errorf("Expected %q, got %q", expected, got)
+	}
+
+	// Call the help on the child command and check
+	// the new template is inherited from the parent
+	got, err = executeCommand(rootCmd, "child", "--help")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	expected = "WORKS " + childCmd.UseLine()
+	if got != expected {
+		t.Errorf("Expected %q, got %q", expected, got)
+	}
+
+	// Reset the root command help template and make sure
+	// it falls back to the default
+	rootCmd.SetHelpTemplate("")
+	got, err = executeCommand(rootCmd, "--help")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	if !strings.Contains(got, "Usage:") {
+		t.Errorf("Expected to contain %q, got %q", "Usage:", got)
+	}
+}
+
 func TestHelpFlagExecuted(t *testing.T) {
 	rootCmd := &Command{Use: "root", Long: "Long description", Run: emptyRun}
 
@@ -1018,6 +1126,45 @@ func TestHelpExecutedOnNonRunnableChild(t *testing.T) {
 	checkStringContains(t, output, childCmd.Long)
 }
 
+func TestSetUsageTemplate(t *testing.T) {
+	rootCmd := &Command{Use: "root", Run: emptyRun}
+	childCmd := &Command{Use: "child", Run: emptyRun}
+	rootCmd.AddCommand(childCmd)
+
+	rootCmd.SetUsageTemplate("WORKS {{.UseLine}}")
+
+	// Trigger the usage on the root command and check the new template is used
+	got, err := executeCommand(rootCmd, "--invalid")
+	if err == nil {
+		t.Errorf("Expected error but did not get one")
+	}
+
+	expected := "WORKS " + rootCmd.UseLine()
+	checkStringContains(t, got, expected)
+
+	// Trigger the usage on the child command and check
+	// the new template is inherited from the parent
+	got, err = executeCommand(rootCmd, "child", "--invalid")
+	if err == nil {
+		t.Errorf("Expected error but did not get one")
+	}
+
+	expected = "WORKS " + childCmd.UseLine()
+	checkStringContains(t, got, expected)
+
+	// Reset the root command usage template and make sure
+	// it falls back to the default
+	rootCmd.SetUsageTemplate("")
+	got, err = executeCommand(rootCmd, "--invalid")
+	if err == nil {
+		t.Errorf("Expected error but did not get one")
+	}
+
+	if !strings.Contains(got, "Usage:") {
+		t.Errorf("Expected to contain %q, got %q", "Usage:", got)
+	}
+}
+
 func TestVersionFlagExecuted(t *testing.T) {
 	rootCmd := &Command{Use: "root", Version: "1.0.0", Run: emptyRun}
 
@@ -1027,6 +1174,24 @@ func TestVersionFlagExecuted(t *testing.T) {
 	}
 
 	checkStringContains(t, output, "root version 1.0.0")
+}
+
+func TestVersionFlagExecutedDiplayName(t *testing.T) {
+	rootCmd := &Command{
+		Use:     "kubectl-plugin",
+		Version: "1.0.0",
+		Annotations: map[string]string{
+			CommandDisplayNameAnnotation: "kubectl plugin",
+		},
+		Run: emptyRun,
+	}
+
+	output, err := executeCommand(rootCmd, "--version", "arg1")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	checkStringContains(t, output, "kubectl plugin version 1.0.0")
 }
 
 func TestVersionFlagExecutedWithNoName(t *testing.T) {
@@ -1097,6 +1262,39 @@ func TestShorthandVersionTemplate(t *testing.T) {
 	}
 
 	checkStringContains(t, output, "customized version: 1.0.0")
+}
+
+func TestRootErrPrefixExecutedOnSubcommand(t *testing.T) {
+	rootCmd := &Command{Use: "root", Run: emptyRun}
+	rootCmd.SetErrPrefix("root error prefix:")
+	rootCmd.AddCommand(&Command{Use: "sub", Run: emptyRun})
+
+	output, err := executeCommand(rootCmd, "sub", "--unknown-flag")
+	if err == nil {
+		t.Errorf("Expected error")
+	}
+
+	checkStringContains(t, output, "root error prefix: unknown flag: --unknown-flag")
+}
+
+func TestRootAndSubErrPrefix(t *testing.T) {
+	rootCmd := &Command{Use: "root", Run: emptyRun}
+	subCmd := &Command{Use: "sub", Run: emptyRun}
+	rootCmd.AddCommand(subCmd)
+	rootCmd.SetErrPrefix("root error prefix:")
+	subCmd.SetErrPrefix("sub error prefix:")
+
+	if output, err := executeCommand(rootCmd, "--unknown-root-flag"); err == nil {
+		t.Errorf("Expected error")
+	} else {
+		checkStringContains(t, output, "root error prefix: unknown flag: --unknown-root-flag")
+	}
+
+	if output, err := executeCommand(rootCmd, "sub", "--unknown-sub-flag"); err == nil {
+		t.Errorf("Expected error")
+	} else {
+		checkStringContains(t, output, "sub error prefix: unknown flag: --unknown-sub-flag")
+	}
 }
 
 func TestVersionFlagExecutedOnSubcommand(t *testing.T) {
@@ -1497,57 +1695,73 @@ func TestHooks(t *testing.T) {
 }
 
 func TestPersistentHooks(t *testing.T) {
-	var (
-		parentPersPreArgs  string
-		parentPreArgs      string
-		parentRunArgs      string
-		parentPostArgs     string
-		parentPersPostArgs string
-	)
+	EnableTraverseRunHooks = true
+	testPersistentHooks(t, []string{
+		"parent PersistentPreRun",
+		"child PersistentPreRun",
+		"child PreRun",
+		"child Run",
+		"child PostRun",
+		"child PersistentPostRun",
+		"parent PersistentPostRun",
+	})
 
-	var (
-		childPersPreArgs  string
-		childPreArgs      string
-		childRunArgs      string
-		childPostArgs     string
-		childPersPostArgs string
-	)
+	EnableTraverseRunHooks = false
+	testPersistentHooks(t, []string{
+		"child PersistentPreRun",
+		"child PreRun",
+		"child Run",
+		"child PostRun",
+		"child PersistentPostRun",
+	})
+}
+
+func testPersistentHooks(t *testing.T, expectedHookRunOrder []string) {
+	var hookRunOrder []string
+
+	validateHook := func(args []string, hookName string) {
+		hookRunOrder = append(hookRunOrder, hookName)
+		got := strings.Join(args, " ")
+		if onetwo != got {
+			t.Errorf("Expected %s %q, got %q", hookName, onetwo, got)
+		}
+	}
 
 	parentCmd := &Command{
 		Use: "parent",
 		PersistentPreRun: func(_ *Command, args []string) {
-			parentPersPreArgs = strings.Join(args, " ")
+			validateHook(args, "parent PersistentPreRun")
 		},
 		PreRun: func(_ *Command, args []string) {
-			parentPreArgs = strings.Join(args, " ")
+			validateHook(args, "parent PreRun")
 		},
 		Run: func(_ *Command, args []string) {
-			parentRunArgs = strings.Join(args, " ")
+			validateHook(args, "parent Run")
 		},
 		PostRun: func(_ *Command, args []string) {
-			parentPostArgs = strings.Join(args, " ")
+			validateHook(args, "parent PostRun")
 		},
 		PersistentPostRun: func(_ *Command, args []string) {
-			parentPersPostArgs = strings.Join(args, " ")
+			validateHook(args, "parent PersistentPostRun")
 		},
 	}
 
 	childCmd := &Command{
 		Use: "child",
 		PersistentPreRun: func(_ *Command, args []string) {
-			childPersPreArgs = strings.Join(args, " ")
+			validateHook(args, "child PersistentPreRun")
 		},
 		PreRun: func(_ *Command, args []string) {
-			childPreArgs = strings.Join(args, " ")
+			validateHook(args, "child PreRun")
 		},
 		Run: func(_ *Command, args []string) {
-			childRunArgs = strings.Join(args, " ")
+			validateHook(args, "child Run")
 		},
 		PostRun: func(_ *Command, args []string) {
-			childPostArgs = strings.Join(args, " ")
+			validateHook(args, "child PostRun")
 		},
 		PersistentPostRun: func(_ *Command, args []string) {
-			childPersPostArgs = strings.Join(args, " ")
+			validateHook(args, "child PersistentPostRun")
 		},
 	}
 	parentCmd.AddCommand(childCmd)
@@ -1560,41 +1774,13 @@ func TestPersistentHooks(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	for _, v := range []struct {
-		name string
-		got  string
-	}{
-		// TODO: currently PersistentPreRun* defined in parent does not
-		// run if the matching child subcommand has PersistentPreRun.
-		// If the behavior changes (https://github.com/spf13/cobra/issues/252)
-		// this test must be fixed.
-		{"parentPersPreArgs", parentPersPreArgs},
-		{"parentPreArgs", parentPreArgs},
-		{"parentRunArgs", parentRunArgs},
-		{"parentPostArgs", parentPostArgs},
-		// TODO: currently PersistentPostRun* defined in parent does not
-		// run if the matching child subcommand has PersistentPostRun.
-		// If the behavior changes (https://github.com/spf13/cobra/issues/252)
-		// this test must be fixed.
-		{"parentPersPostArgs", parentPersPostArgs},
-	} {
-		if v.got != "" {
-			t.Errorf("Expected blank %s, got %q", v.name, v.got)
-		}
-	}
-
-	for _, v := range []struct {
-		name string
-		got  string
-	}{
-		{"childPersPreArgs", childPersPreArgs},
-		{"childPreArgs", childPreArgs},
-		{"childRunArgs", childRunArgs},
-		{"childPostArgs", childPostArgs},
-		{"childPersPostArgs", childPersPostArgs},
-	} {
-		if v.got != onetwo {
-			t.Errorf("Expected %s %q, got %q", v.name, onetwo, v.got)
+	for idx, exp := range expectedHookRunOrder {
+		if len(hookRunOrder) > idx {
+			if act := hookRunOrder[idx]; act != exp {
+				t.Errorf("Expected %q at %d, got %q", exp, idx, act)
+			}
+		} else {
+			t.Errorf("Expected %q at %d, got nothing", exp, idx)
 		}
 	}
 }
@@ -2010,12 +2196,12 @@ func TestCommandPrintRedirection(t *testing.T) {
 		t.Error(err)
 	}
 
-	gotErrBytes, err := ioutil.ReadAll(errBuff)
+	gotErrBytes, err := io.ReadAll(errBuff)
 	if err != nil {
 		t.Error(err)
 	}
 
-	gotOutBytes, err := ioutil.ReadAll(outBuff)
+	gotOutBytes, err := io.ReadAll(outBuff)
 	if err != nil {
 		t.Error(err)
 	}
@@ -2695,7 +2881,7 @@ func TestFind(t *testing.T) {
 
 func TestUnknownFlagShouldReturnSameErrorRegardlessOfArgPosition(t *testing.T) {
 	testCases := [][]string{
-		//{"--unknown", "--namespace", "foo", "child", "--bar"}, // FIXME: This test case fails, returning the error `unknown command "foo" for "root"` instead of the expected error `unknown flag: --unknown`
+		// {"--unknown", "--namespace", "foo", "child", "--bar"}, // FIXME: This test case fails, returning the error `unknown command "foo" for "root"` instead of the expected error `unknown flag: --unknown`
 		{"--namespace", "foo", "--unknown", "child", "--bar"},
 		{"--namespace", "foo", "child", "--unknown", "--bar"},
 		{"--namespace", "foo", "child", "--bar", "--unknown"},
